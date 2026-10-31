@@ -1,0 +1,65 @@
+[
+  {
+    "history_steps": 20,
+    "als_iterations": 5,
+    "mf_top10_slate_utility": 0.059539925399537404,
+    "mf_best_of_slate_utility": 0.10604858498250308,
+    "random_expected_best_of_10_same_remaining_pool": 0.08362730712510759
+  },
+  {
+    "history_steps": 20,
+    "als_iterations": 20,
+    "mf_top10_slate_utility": 0.07144191317495933,
+    "mf_best_of_slate_utility": 0.1164147724993681,
+    "random_expected_best_of_10_same_remaining_pool": 0.08362730712510759
+  },
+  {
+    "history_steps": 20,
+    "als_iterations": 40,
+    "mf_top10_slate_utility": 0.07324893174642545,
+    "mf_best_of_slate_utility": 0.1182483889460644,
+    "random_expected_best_of_10_same_remaining_pool": 0.08362730712510759
+  },
+  {
+    "history_steps": 40,
+    "als_iterations": 5,
+    "mf_top10_slate_utility": 0.05354158402475679,
+    "mf_best_of_slate_utility": 0.08029779623167409,
+    "random_expected_best_of_10_same_remaining_pool": 0.08193845055297964
+  },
+  {
+    "history_steps": 40,
+    "als_iterations": 20,
+    "mf_top10_slate_utility": 0.057577007486192815,
+    "mf_best_of_slate_utility": 0.09070824893805478,
+    "random_expected_best_of_10_same_remaining_pool": 0.08193845055297964
+  },
+  {
+    "history_steps": 40,
+    "als_iterations": 40,
+    "mf_top10_slate_utility": 0.057576409280110485,
+    "mf_best_of_slate_utility": 0.09068365762159758,
+    "random_expected_best_of_10_same_remaining_pool": 0.08193845055297964
+  },
+  {
+    "history_steps": 120,
+    "als_iterations": 5,
+    "mf_top10_slate_utility": 0.03322444521447685,
+    "mf_best_of_slate_utility": 0.058795132414189016,
+    "random_expected_best_of_10_same_remaining_pool": 0.08013938712207971
+  },
+  {
+    "history_steps": 120,
+    "als_iterations": 20,
+    "mf_top10_slate_utility": 0.0336260049192184,
+    "mf_best_of_slate_utility": 0.060747698452900914,
+    "random_expected_best_of_10_same_remaining_pool": 0.08013938712207971
+  },
+  {
+    "history_steps": 120,
+    "als_iterations": 40,
+    "mf_top10_slate_utility": 0.03360736079106926,
+    "mf_best_of_slate_utility": 0.06042795734445417,
+    "random_expected_best_of_10_same_remaining_pool": 0.08013938712207971
+  }
+]

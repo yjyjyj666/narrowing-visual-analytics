@@ -1,0 +1,123 @@
+{
+  "python": "3.10.4 (v3.10.4:9d38120e33, Mar 23 2022, 17:29:05) [Clang 13.0.0 (clang-1300.0.29.30)]",
+  "packages": {
+    "trecs": "0.2.1",
+    "numpy": "1.23.5",
+    "scipy": "1.10.1",
+    "pandas": "1.5.3",
+    "lenskit": "0.14.4",
+    "numba": "0.57.1"
+  },
+  "results": [
+    {
+      "model": "MF",
+      "seed": 123,
+      "config": {
+        "users": 500,
+        "items": 2000,
+        "attributes": 20,
+        "factors": 10,
+        "startup_steps": 20,
+        "evaluation_steps": 100,
+        "slate_size": 10,
+        "als_iterations": 5,
+        "drift": 0,
+        "repeated_consumption": false
+      },
+      "seconds": 39.036,
+      "history_shape": [
+        120,
+        500
+      ],
+      "selected_in_slate": true,
+      "valid_item_ids": true,
+      "repeated_choices": 0,
+      "previously_consumed_slate_items": 0,
+      "minimum_remaining_items": 1880,
+      "true_attributes_fixed": true,
+      "true_preferences_fixed": true,
+      "fits": 101,
+      "first_fit_interactions": 10000,
+      "last_fit_interactions": 60000,
+      "fitted_item_coverage_first": 1971,
+      "fitted_item_coverage_last": 1991,
+      "index_alignment_checked_each_fit": true,
+      "scores_finite_each_fit": true,
+      "score_change_norm_min": 0.5691650046148922,
+      "score_change_norm_max": 1014.3099816328861
+    },
+    {
+      "model": "MF",
+      "seed": 124,
+      "config": {
+        "users": 500,
+        "items": 2000,
+        "attributes": 20,
+        "factors": 10,
+        "startup_steps": 20,
+        "evaluation_steps": 100,
+        "slate_size": 10,
+        "als_iterations": 5,
+        "drift": 0,
+        "repeated_consumption": false
+      },
+      "seconds": 35.432,
+      "history_shape": [
+        120,
+        500
+      ],
+      "selected_in_slate": true,
+      "valid_item_ids": true,
+      "repeated_choices": 0,
+      "previously_consumed_slate_items": 0,
+      "minimum_remaining_items": 1880,
+      "true_attributes_fixed": true,
+      "true_preferences_fixed": true,
+      "fits": 101,
+      "first_fit_interactions": 10000,
+      "last_fit_interactions": 60000,
+      "fitted_item_coverage_first": 1981,
+      "fitted_item_coverage_last": 1996,
+      "index_alignment_checked_each_fit": true,
+      "scores_finite_each_fit": true,
+      "score_change_norm_min": 0.5328294291474098,
+      "score_change_norm_max": 1005.6365302682244
+    },
+    {
+      "model": "Random",
+      "seed": 123,
+      "config": {
+        "users": 500,
+        "items": 2000,
+        "attributes": 20,
+        "factors": 10,
+        "startup_steps": 20,
+        "evaluation_steps": 100,
+        "slate_size": 10,
+        "als_iterations": 5,
+        "drift": 0,
+        "repeated_consumption": false
+      },
+      "seconds": 42.42,
+      "history_shape": [
+        120,
+        500
+      ],
+      "selected_in_slate": true,
+      "valid_item_ids": true,
+      "repeated_choices": 0,
+      "previously_consumed_slate_items": 0,
+      "minimum_remaining_items": 1880,
+      "true_attributes_fixed": true,
+      "true_preferences_fixed": true
+    }
+  ],
+  "limits": [
+    "Readiness audit, not scientific validation of narrowing.",
+    "Two MF seeds; no broad multi-seed inference.",
+    "ALS uses five iterations; no accuracy or convergence claim.",
+    "Fixed preferences only; drift configurations not tested.",
+    "Reference run is not a paired treatment-effect experiment.",
+    "Unseen items retain the original initialization until fitted; coverage is logged."
+  ]
+}

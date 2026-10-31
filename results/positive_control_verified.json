@@ -1,0 +1,11 @@
+{
+  "purpose": "Positive control using four explicit groups, not a natural-data finding",
+  "users": 200,
+  "items": 400,
+  "groups": 4,
+  "startup_steps": 20,
+  "als_iterations": 20,
+  "matched_group_fraction_top10": 0.9995,
+  "shuffled_user_fraction_top10": 0.0,
+  "random_expected_fraction_eligible": 0.21452631578947368
+}
