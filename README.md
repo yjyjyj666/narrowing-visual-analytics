@@ -7,7 +7,11 @@ We study how cumulative and recent consumption-diversity measures give different
 
 ## Current status
 
-Simulator readiness and initial model-behavior checks are complete for the tested configurations. The detector experiments and visualization interface are not yet complete. This repository currently contains the local MF adapter, reproducible checking scripts and compact audit results.
+Simulator readiness and initial model-behavior checks are complete for the tested configurations. The diversity measures are implemented; the detector experiments and visualization interface are not yet complete. This repository currently contains the local MF adapter, the diversity measures, reproducible checking scripts and compact audit results.
+
+## Diversity measures
+
+[`src/metrics.py`](src/metrics.py) computes cumulative, Rolling-10 and Rolling-20 diversity: the mean pairwise cosine distance of the actual attribute vectors of consumed items. Steps are 0-based and each value uses only items consumed up to that step. It also implements the shared alarm rule: a series stays below `(1 - theta) * reference` for three consecutive steps. The formulas are unchanged from our earlier pilot analysis. Threshold calibration and scoring are not part of this module.
 
 ## Original research and code
 
@@ -51,11 +55,12 @@ From the repository root, with the environment active:
 
 ```bash
 python scripts/check_adapter.py
+python scripts/check_metrics.py
 python scripts/check_readiness.py
 python scripts/audit_behavior.py --iterations 20 --corrected-only
 ```
 
-The first command is a small smoke test. The readiness script runs two original MF configurations and one Random reference. The final command uses the local adapter and runs two updated models and a frozen-model reference. To also run original-versus-adapted comparisons, omit `--corrected-only`.
+The first command is a small smoke test. The second compares the diversity measures with brute-force pairwise distances and checks the alarm rule on fixed series; it takes about a second. The readiness script runs two original MF configurations and one Random reference. The final command uses the local adapter and runs two updated models and a frozen-model reference. To also run original-versus-adapted comparisons, omit `--corrected-only`.
 
 Runs write JSON summaries and compressed synthetic histories under `results/`. Large arrays are ignored by Git. Runtime depends on machine and settings; the complete comparison takes several minutes, not just the smoke-test duration. A NUMBA or Matplotlib cache warning can be addressed by setting their cache directories to writable local locations.
 
