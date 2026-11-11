@@ -7,7 +7,11 @@ We study how cumulative and recent consumption-diversity measures give different
 
 ## Current status
 
-Simulator readiness and initial model-behavior checks are complete for the tested configurations. The diversity measures are implemented; the detector experiments and visualization interface are not yet complete. This repository currently contains the local MF adapter, the diversity measures, reproducible checking scripts and compact audit results.
+Simulator readiness and initial model-behavior checks are complete for the tested configurations. The diversity measures and shared alarm rule are implemented. The controlled synthetic experiment for RQ1 and RQ2 is complete, with separate seeds for threshold calibration and evaluation.
+
+See the [RQ1 and RQ2 findings](docs/rq1_rq2_findings.md), [experiment design and reproduction steps](docs/synthetic_experiment.md), and [abrupt versus gradual narrowing comparison](results/synthetic/rq2_abrupt_vs_gradual.png).
+
+The linked visualization, alternate-label comparison, and matrix-factorization application case are planned next.
 
 ## Diversity measures
 
