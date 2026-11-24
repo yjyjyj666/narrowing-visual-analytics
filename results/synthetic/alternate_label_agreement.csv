@@ -1,0 +1,4 @@
+true_scenario,histories,labelled_narrowed,labelled_stable,labelled_ambiguous,median_onset_minus_t_star,onset_before_t_star
+stationary,2500,0,2408,92,,
+abrupt,2500,1137,174,1189,4.0,33
+gradual,2500,943,253,1304,18.0,0
