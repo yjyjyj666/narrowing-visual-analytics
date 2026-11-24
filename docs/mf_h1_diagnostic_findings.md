@@ -13,7 +13,7 @@ Treat the results as provisional until both members confirm these settings.
 
 ## 1. MF application case
 
-**Status.** The MF results first reported here used the original configuration in spec §7. That configuration stopped working as a recommender in the second half of the run, so its histories carried no useful signal about narrowing. Its results are superseded and kept in §1.3 only as a record.
+**Status.** The MF results first reported here used the original configuration in spec §7. That configuration stopped working as a recommender in the second half of the run, so its histories carried no useful signal about narrowing. Its results are superseded and have been removed; see §1.3.
 
 The current MF data use the candidate configuration from [docs/mf_pipeline_experiment.md](mf_pipeline_experiment.md), which is still **Proposed**. MF is a qualitative application, so it uses one seed (123); see spec §7. The percentages in §1.2 describe that seed only. The qualitative pattern, narrowing episodes that all end before the final 20 steps, also appeared in development seeds 128 and 133.
 
@@ -68,53 +68,9 @@ A test is still to be designed and its result recorded here.
 
 Files: `results/mf_candidate/summary.json` and `results/mf_candidate/candidate/mf_seed123.npz` (not committed).
 
-### 1.3 Original configuration (superseded)
+### 1.3 Original configuration (removed)
 
-These results describe histories from a model that, late in the run, recommended worse than Random. They are kept for the record and are not results about narrowing.
-
-**Setup (original configuration).**
-
-- 5 seeds (123–127), each with 500 users and 2,000 items.
-- `CheckedImplicitMF` with 10 latent factors, 20 ALS iterations and slates of 10.
-- 20 random startup steps, then 100 MF steps with a refit after every step.
-- Fixed preferences and no repeated consumption.
-
-The simulation loop matches `scripts/audit_behavior.py`. Thresholds come from the synthetic calibration (seeds 0–4). They are not recalibrated on MF histories.
-
-There are two references:
-
-- `startup`: the value at index 19, with alarms from index 20.
-- `early_mf`: the value at index 29, with alarms from index 30.
-
-MF has no known change point, so these results describe **alarm timing and detector disagreement only**. They do not make hit-rate claims.
-
-**Results at the 10% target, 2,500 users pooled.** The range in brackets is over the five seeds.
-
-| Detector | Alarmed, `startup` reference | Of which in the first ten MF steps (indices 20–29) | Alarmed, `early_mf` reference |
-|---|---:|---:|---:|
-| Cumulative | 49% (45–52%) | 24% of all users (18–26%) | 22% (17–28%) |
-| Rolling-10 | 64% (59–67%) | 30% (25–34%) | 19% (18–22%) |
-| Rolling-20 | 62% (58–64%) | 9% (6–11%) | 46% (40–49%) |
-
-![Timing of first alarms in the MF case](../results/mf/mf_alarm_timing.png)
-
-**`startup` reference.** Under this reference, a large share of first alarms occur in the first ten MF steps. This is a description of timing; it does not show that the switch to MF caused these alarms. Rolling-20 alarms later, mostly at indices 30–39, because its 20-item window still holds startup items until index 39.
-
-**`early_mf` reference.** Under this reference, alarm counts fall for all detectors. Rolling-20 keeps the most alarms. Its reference window, indices 10–29, still includes ten startup items, so its baseline stays high. Cumulative's reference also includes startup items. Both limitations should be stated wherever this reference is reported.
-
-**Detector disagreement** (`startup` reference, 10% target, 2,500 users):
-
-- Rolling-10 alarms on 453 users where Cumulative does not; the reverse happens for 99 users.
-- Rolling-10 and Rolling-20 disagree on 389 users.
-
-These users are the material for the matrix view.
-
-Files:
-
-- `results/mf/mf_alarm_summary.csv` (pooled)
-- `results/mf/mf_alarm_summary_by_seed.csv`
-- `results/mf/mf_alarm_timing.csv`
-- `results/mf/mf_detector_disagreement.csv`
+Alarm results from the original configuration (seeds 123–127) were removed, because that model ranked items worse than Random late in the run and its alarms say nothing about a working recommender. The scripts, tables and figure are in commit `0848ded` (`scripts/run_mf_case.py`, `scripts/plot_mf_alarm_timing.py`, `results/mf/`). To compare the original and candidate configurations, use `scripts/run_mf_experiment.py --policies baseline candidate`.
 
 ## 2. H1: rescoring with the pilot label
 
@@ -201,7 +157,7 @@ The equal-sample ratio's spread narrows somewhat over time, from 0.26 to 0.21. I
 
 - `summary.json`: 18 rows, the synthetic results table.
 - `synthetic.json`: evaluation seed 5, 1,500 records, 5.9 MB.
-- `mf.json`: MF seed 123 from the candidate configuration, 500 records with both references, 2.1 MB. Export it with `--mf-dir results/mf_candidate/candidate`.
+- `mf.json`: MF seed 123 from the candidate configuration, 500 records with both references, 2.1 MB.
 
 Each record also holds `series.recent_vs_early`.
 
@@ -221,12 +177,10 @@ Use the pinned environment in `README.md`, from the repository root:
 python scripts/check_metrics.py
 python scripts/check_mf_experiment.py
 python scripts/run_mf_experiment.py --seeds 123 --policies candidate --output-dir results/mf_candidate   # about 1 minute
-python scripts/run_mf_case.py                 # original configuration, §1.3 only; reuses results/mf/*.npz
 python scripts/evaluate_alternate_labels.py   # about 1 minute
 python scripts/equal_sample_diagnostic.py     # about 1 minute
-python scripts/export_vis_data.py --mf-dir results/mf_candidate/candidate
+python scripts/export_vis_data.py
 python scripts/check_export.py
-python scripts/plot_mf_alarm_timing.py
 python scripts/plot_alternate_labels.py
 python scripts/plot_equal_sample.py
 ```
@@ -238,7 +192,6 @@ Seeds:
 | 0–4 | Calibration, via the existing thresholds |
 | 5–9 | Evaluation |
 | 123 | MF, candidate configuration |
-| 123–127 | MF, original configuration (§1.3 only) |
 | 128, 130, 133, 134 | Development of the candidate MF configuration (see spec §6) |
 | `[seed, 2]` | Random stream for the recent-versus-early ratio in the export |
 | `[seed, 3]` | Random stream for the recent-versus-early ratio in the diagnostic |

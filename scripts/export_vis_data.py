@@ -1,9 +1,8 @@
 """Export the JSON files the linked visualization reads (docs/spec.md §8).
 
 Writes data/summary.json, data/synthetic.json (one evaluation seed) and, when the
-MF histories exist, data/mf.json. --mf-dir picks the MF run: results/mf/ (from
-scripts/run_mf_case.py) by default, or e.g. results/mf_candidate/candidate/ from
-scripts/run_mf_experiment.py (docs/mf_pipeline_experiment.md). A small sample of
+MF histories exist, data/mf.json. By default the MF input is the candidate run from
+scripts/run_mf_experiment.py (docs/mf_pipeline_experiment.md); --mf-dir picks another. A small sample of
 each file goes to data/sample/, which is the only part committed to Git.
 """
 import argparse
@@ -22,7 +21,7 @@ from metrics import diversity_series, recent_vs_early  # noqa: E402
 from generate_synthetic_batch import SCENARIOS, STEPS, check_batch, generate_batch  # noqa: E402
 
 RESULTS_CSV = REPO_ROOT / "results" / "synthetic" / "synthetic_alarm_results.csv"
-MF_DIR = REPO_ROOT / "results" / "mf"
+MF_DIR = REPO_ROOT / "results" / "mf_candidate" / "candidate"
 INTEGER_COLUMNS = {"users", "hits", "early_alarms", "misses"}
 DECIMALS = 4
 
