@@ -4,7 +4,7 @@ from pathlib import Path
 import numpy as np
 from scipy.spatial.distance import pdist
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
-from metrics import diversity_series, first_alarms
+from metrics import diversity_series, first_alarms, recent_vs_early
 
 rng = np.random.default_rng(7)
 items = rng.dirichlet(np.full(20, .5), size=2000)
@@ -48,4 +48,20 @@ try:
     raise AssertionError('NaN reference accepted')
 except ValueError:
     pass
-print('PASS: diversity matches brute force; chunking, extremes and alarm rule checked')
+# Recent-versus-early ratio, window 10: undefined before step 19.
+ratio = recent_vs_early(items, histories[:5], np.random.default_rng(1))
+assert np.isnan(ratio[:, :19]).all() and np.isfinite(ratio[:, 19:]).all()
+# At step 19 the earlier pool holds exactly 10 items, so every draw is that whole set.
+for u in range(5):
+    expected = brute(histories[u], 10, 20) / brute(histories[u], 0, 10)
+    assert np.isclose(ratio[u, 19], expected), u
+# A random 10-item subset has expected diversity equal to the pool's mean pairwise
+# distance, so with many draws D_early approaches the brute-force pool value.
+many = recent_vs_early(items, histories[:3, :61], np.random.default_rng(2), draws=4000)
+for u in range(3):
+    expected = brute(histories[u], 51, 61) / brute(histories[u], 0, 51)
+    assert np.isclose(many[u, 60], expected, rtol=0.01), (u, many[u, 60], expected)
+# Orthogonal items are all at distance 1, so the ratio is exactly 1.
+assert np.allclose(recent_vs_early(np.eye(40), np.arange(40), np.random.default_rng(3))[0, 19:], 1)
+print('PASS: diversity matches brute force; chunking, extremes, alarm rule and '
+      'recent-versus-early ratio checked')
