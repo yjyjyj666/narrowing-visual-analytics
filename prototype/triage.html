@@ -87,7 +87,7 @@ svg text { fill: var(--muted); font-family: var(--mono); font-size: 10px; }
       <select id="groupBy"><option value="truth">Correctness (needs truth)</option><option value="alarms">Alarms only</option><option value="focus">Selected detector (from overview)</option></select></label>
     <label class="field"><span>Reference</span>
       <select id="ref"><option value="startup">Step 19</option><option value="early_mf">Step 29 (MF only)</option></select></label>
-    <label class="field"><span>False-alarm target</span>
+    <label class="field"><span>Calibration target α (at 1×)</span>
       <select id="alpha"><option>0.05</option><option selected>0.10</option><option>0.20</option></select></label>
     <label class="field"><span>Threshold scale <output id="scaleOut" class="mono">1.00×</output></span>
       <input id="scale" type="range" min="0.5" max="1.5" step="0.05" value="1"></label>
@@ -95,7 +95,7 @@ svg text { fill: var(--muted); font-family: var(--mono); font-size: 10px; }
       <select id="scenario"><option value="all">All</option><option value="s">Stationary</option><option value="a">Abrupt</option><option value="g">Gradual</option></select></label>
     <label class="field"><span>Sort rows by</span>
       <select id="sort">
-        <option value="others">Other detectors disagree first</option>
+        <option value="others">Other detectors differ on hit/miss</option>
         <option value="conc">Topic concentration rise</option>
         <option value="margin">Closest to the threshold</option>
         <option value="atyp">Least like the rest of the group</option>
@@ -104,7 +104,7 @@ svg text { fill: var(--muted); font-family: var(--mono); font-size: 10px; }
         <option value="user">User id</option>
       </select></label>
     <label class="field"><span>Cells show</span>
-      <select id="view"><option value="topics">Topic consumed</option><option value="conc">Recent topic concentration</option><option value="div">Rolling-10 vs reference</option></select></label>
+      <select id="view"><option value="conc" selected>Recent topic concentration</option><option value="topics">Topic consumed</option><option value="div">Diversity vs reference (selected detector)</option></select></label>
     <label class="check"><input id="truth" type="checkbox"><span>Show ground truth</span></label>
   </section>
 
@@ -114,6 +114,7 @@ svg text { fill: var(--muted); font-family: var(--mono); font-size: 10px; }
       <button id="focusClear" hidden>Clear selection</button>
     </div>
     <div class="ovwrap"><table class="ov" id="overview"></table></div>
+    <div id="timing"></div>
     <p class="note" id="ovNote"></p>
   </section>
 
@@ -164,7 +165,7 @@ const $ = (id) => document.getElementById(id);
 const ALPHAS = ["0.05", "0.10", "0.20"];
 // focus: the detector picked in the overview, or null; it drives the "focus" grouping and the "others" sort.
 const state = { dataset: "synthetic", groupBy: "truth", ref: "startup", alpha: "0.10", scale: 1, scenario: "all",
-                sort: "conc", view: "topics", truth: false, group: "allwrong", selected: null, audit: null, focus: null };
+                sort: "conc", view: "conc", truth: false, group: "allwrong", selected: null, audit: null, focus: null };
 let DATA = window.TRIAGE_DATA, sets = {}, rows = [], shown = [], rowH = 6, flags = {};
 try { flags = JSON.parse(localStorage.getItem("triage-flags") || "{}"); } catch (e) { flags = {}; }
 
@@ -217,7 +218,7 @@ function evaluate() {
     const verdict = (d) => (hasTruth() ? r.ok[d] : r.alarm[d] >= 0);
     const f = state.focus;
     r.others = f ? DET.filter((d) => d !== f && verdict(d) !== verdict(f)).length : 0;
-    if (state.groupBy === "focus") { r.group = hasTruth() ? (r.ok[f] ? "right" : "wrong") : (r.alarm[f] >= 0 ? "alarm" : "silent"); continue; }
+    if (state.groupBy === "focus") { r.group = focusGroup(r, f); r.first10 = r.alarm[f] >= 20 && r.alarm[f] <= 29; continue; }
     const n = state.groupBy === "truth" ? DET.filter((d) => r.ok[d]).length : fired.length;
     r.group = state.groupBy === "truth" ? (n === 3 ? "allright" : n === 0 ? "allwrong" : "disagree")
                                          : (n === 3 ? "allalarm" : n === 0 ? "noalarm" : "disagree");
@@ -273,47 +274,80 @@ function scoreMF(alarms) {
   // No known change point: alarm counts and timing only.
   const fired = alarms.filter((x) => x >= 0).sort((a, b) => a - b);
   return { n: alarms.length, alarmed: fired.length, first10: fired.filter((x) => x >= 20 && x <= 29).length,
-           median: fired.length ? fired[Math.floor(fired.length / 2)] : null };
+           median: fired.length ? fired[Math.floor(fired.length / 2)] : null, fired };
 }
 const pct = (k, n) => (n ? Math.round((100 * k) / n) + "%" : "–");
 function renderOverview() {
   const stats = overviewStats(), syn = hasTruth();
-  const cell = (d, a, sc, text, title) => {
-    const sel = state.focus === d && state.alpha === a && (!syn || state.scenario === sc);
-    return `<td${sel ? ' class="sel"' : ""}><button data-d="${d}" data-a="${a}" data-sc="${sc}" title="${title}">${text}</button></td>`;
+  // A cell is a button that opens the matrix group it counts (data-g), for that detector, target and scenario.
+  const cell = (d, a, sc, g, text, title) => {
+    const sel = state.focus === d && state.alpha === a && state.group === g && (!syn || state.scenario === sc);
+    return `<td${sel ? ' class="sel"' : ""}><button data-d="${d}" data-a="${a}" data-sc="${sc}" data-g="${g}" title="${title}">${text}</button></td>`;
   };
-  const head = syn ? ["Stationary: false alarms", "Abrupt: detected", "Abrupt: delay", "Gradual: detected", "Gradual: delay"]
+  const head = syn ? ["Stationary: false alarms", "Abrupt: detected", "Abrupt: early alarms", "Abrupt: delay",
+                      "Gradual: detected", "Gradual: early alarms", "Gradual: delay"]
                    : ["Alarmed", "In first ten MF steps", "Median first alarm"];
-  let html = `<thead><tr><th class="name">Detector</th><th>Target α</th><th>θ</th>${head.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>`;
+  let html = `<thead><tr><th class="name">Detector</th><th>Calibration target α (1×)</th><th>θ</th>${head.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>`;
   for (const d of DET) ALPHAS.forEach((a, k) => {
     const s = stats[d + "|" + a];
     html += `<tr${a === state.alpha ? ' class="cur"' : ""}>` +
       (k === 0 ? `<td class="name" rowspan="3"><span class="sw" style="background:var(--det-${d})"></span>${DNAME[d]}</td>` : "") +
       `<td class="mono">${a}</td><td class="mono">${s.theta.toFixed(3)}</td>`;
     if (syn) {
-      html += cell(d, a, "s", pct(s.s.alarmed, s.s.n), `${s.s.alarmed} of ${s.s.n} stationary users alarmed`);
+      html += cell(d, a, "s", "falarm", pct(s.s.alarmed, s.s.n), `${s.s.alarmed} of ${s.s.n} stationary users alarmed: opens them`);
       for (const sc of ["a", "g"]) {
         const b = s[sc];
-        html += cell(d, a, sc, pct(b.hits, b.n), `${b.hits} of ${b.n} hits, ${b.early} early alarms`);
-        html += cell(d, a, sc, b.hits ? (b.delay / b.hits).toFixed(1) : "–", `mean delay in steps over ${b.hits} hits`);
+        html += cell(d, a, sc, "hit", pct(b.hits, b.n), `${b.hits} of ${b.n} timely hits: opens them`);
+        html += cell(d, a, sc, "early", pct(b.early, b.n), `${b.early} of ${b.n} alarmed before the change point (counted as misses): opens them`);
+        html += cell(d, a, sc, "hit", b.hits ? (b.delay / b.hits).toFixed(1) : "–", `mean delay in steps over ${b.hits} timely hits: opens them`);
       }
     } else {
-      html += cell(d, a, "m", pct(s.alarmed, s.n), `${s.alarmed} of ${s.n} users alarmed`);
-      html += cell(d, a, "m", state.ref === "startup" ? pct(s.first10, s.n) : "–", "first alarm at steps 20-29, as a share of all users (step 19 reference only)");
-      html += cell(d, a, "m", s.median === null ? "–" : String(s.median), "median step of the first alarm among alarmed users");
+      html += cell(d, a, "m", "alarm", pct(s.alarmed, s.n), `${s.alarmed} of ${s.n} users alarmed: opens them`);
+      html += state.ref === "startup"
+        ? cell(d, a, "m", "first10", pct(s.first10, s.n), `${s.first10} of ${s.n} users first alarmed at steps 20-29: opens them`)
+        : `<td class="mono">–</td>`;
+      html += cell(d, a, "m", "alarm", s.median === null ? "–" : String(s.median), "median step of the first alarm among alarmed users: opens them");
     }
     html += "</tr>";
   });
   $("overview").innerHTML = html + "</tbody>";
   $("ovTitle").textContent = `Overview · ${syn ? "synthetic seed " + DATA.synthetic.seed : "MF candidate seed " + DATA.mf.seed} · threshold scale ${state.scale.toFixed(2)}×`;
   $("focusClear").hidden = !state.focus;
+  renderTiming(stats);
   $("ovNote").textContent = syn
-    ? "Scored on the histories shown here, so the false-alarm rate is the realized rate on this seed, not the target. Delay averages hits only; early alarms count as misses. Alarms are recomputed from rounded series, so a few counts can differ by one from results/synthetic/synthetic_alarm_results_by_seed.csv; pooled results over seeds 5–9 are in synthetic_alarm_results.csv. Click a cell to list that detector's histories for that scenario and target."
-    : "MF has no known change point, so this compares alarm counts only. Alarms in the first ten MF steps are a description of timing, not evidence that the switch to MF caused them. Click a cell to list that detector's histories at that target.";
+    ? "α is the calibration target and holds at threshold scale 1× only; the false-alarm column is the realized rate on this seed. Each cell opens the histories it counts. Delay averages hits only; early alarms count as misses. Alarms are recomputed from rounded series, so a few counts can differ by one from results/synthetic/synthetic_alarm_results_by_seed.csv; pooled results over seeds 5–9 are in synthetic_alarm_results.csv. "
+    : "MF has no known change point, so this compares alarm counts only. Alarms in the first ten MF steps are a description of timing, not evidence that the switch to MF caused them. Each cell opens the histories it counts.";
 }
-function focusOn(d, a, sc) {
-  // Overview -> matrix: pick the target, scenario and detector, then group and sort the matrix by that detector.
-  Object.assign(state, { alpha: a, focus: d, groupBy: "focus", group: hasTruth() ? "wrong" : "alarm", sort: "others", selected: null, audit: null });
+function renderTiming(stats) {
+  if (hasTruth()) { $("timing").innerHTML = ""; return; }
+  const [, start] = REFS[state.ref], W = 640, H = 170, L = 40, R = 110, T = 10, B = 28;
+  const x = (t) => L + (t / 119) * (W - L - R), y = (v) => T + (1 - v) * (H - T - B);
+  let svg = `<svg viewBox="0 0 ${W} ${H}" width="100%" style="max-width:${W}px" role="img" aria-label="Share of users first alarmed by each step, per detector">`;
+  for (const v of [0, 0.5, 1]) svg += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)"/><text x="${L - 6}" y="${y(v) + 3}" text-anchor="end">${v * 100}%</text>`;
+  for (const t of [0, 20, 40, 60, 80, 100, 119]) svg += `<text x="${x(t)}" y="${H - 14}" text-anchor="middle">${t}</text>`;
+  svg += `<text x="${(L + W - R) / 2}" y="${H - 2}" text-anchor="middle">step · share of all ${rows.length} users first alarmed by then (target ${state.alpha})</text>`;
+  svg += `<line x1="${x(20)}" x2="${x(20)}" y1="${T}" y2="${H - B}" stroke="var(--switch)" stroke-width="1.5"/><text x="${x(20) + 3}" y="${T + 9}" text-anchor="start">switch to MF</text>`;
+  if (start !== 20) svg += `<line x1="${x(start)}" x2="${x(start)}" y1="${T + 14}" y2="${H - B}" stroke="var(--muted)" stroke-dasharray="3 3"/><text x="${x(start) + 3}" y="${T + 22}" text-anchor="start">monitoring starts</text>`;
+  const ends = [];
+  DET.forEach((d) => {
+    const s = stats[d + "|" + state.alpha], n = s.n;
+    let pts = `${x(0)},${y(0)}`, c = 0, prev = 0;
+    for (let t = 0; t < 120; t++) {
+      while (c < s.fired.length && s.fired[c] <= t) c++;
+      // Step shape: hold the previous share up to this step, then jump.
+      pts += ` ${x(t)},${y(prev / n)} ${x(t)},${y(c / n)}`; prev = c;
+    }
+    svg += `<polyline points="${pts}" fill="none" stroke="var(--det-${d})" stroke-width="1.6"/>`;
+    ends.push({ d, y: y(c / n), text: `${DNAME[d]} ${pct(c, n)}` });
+  });
+  // End labels: keep their order by final share and push apart any closer than 12 px so they never overlap.
+  ends.sort((a, b) => a.y - b.y).forEach((e, i) => { if (i && e.y < ends[i - 1].y + 12) e.y = ends[i - 1].y + 12; });
+  for (const e of ends) svg += `<text x="${W - R + 6}" y="${e.y + 3}" style="fill:var(--det-${e.d})">${e.text}</text>`;
+  $("timing").innerHTML = svg + "</svg>";
+}
+function focusOn(d, a, sc, g) {
+  // Overview -> matrix: pick the target, scenario, detector and the group the clicked cell counts.
+  Object.assign(state, { alpha: a, focus: d, groupBy: "focus", group: g, sort: "others", selected: null, audit: null });
   if (hasTruth()) state.scenario = sc;
   render();
 }
@@ -328,11 +362,30 @@ const GROUPS = {
   truth: [["disagree", "Detectors disagree"], ["allwrong", "All three wrong"], ["allright", "All three right"]],
   alarms: [["disagree", "Detectors disagree"], ["noalarm", "No detector alarms"], ["allalarm", "All three alarm"]],
 };
+// Focus mode splits histories by the selected detector's outcome under the spec §5 rules:
+// changed histories into timely hit / early alarm / late or no alarm, stationary into false alarm / silent.
+function focusGroup(r, f) {
+  const a = r.alarm[f];
+  if (!hasTruth()) return a >= 0 ? "alarm" : "silent";
+  if (r.sc === "s") return a >= 0 ? "falarm" : "quiet";
+  return a >= 0 && a < r.t ? "early" : a >= r.t && a <= r.t + 39 ? "hit" : "lateno";
+}
 function groupList() {
   if (state.groupBy !== "focus") return GROUPS[state.groupBy];
   const f = DNAME[state.focus];
-  return hasTruth() ? [["wrong", `${f} wrong`], ["right", `${f} right`]] : [["alarm", `${f} alarms`], ["silent", `${f} silent`]];
+  if (!hasTruth()) {
+    // "first10" is a subset of "alarm", shown as its own card so the first-ten-steps cohort is one click away.
+    const list = [["alarm", `${f} alarms`], ["silent", `${f} silent`]];
+    if (state.ref === "startup") list.splice(1, 0, ["first10", `${f} alarms at steps 20–29 (subset)`]);
+    return list;
+  }
+  const changed = [["hit", `${f} timely hit`], ["early", `${f} early alarm (miss)`], ["lateno", `${f} late or no alarm (miss)`]];
+  const stationary = [["falarm", `${f} false alarm`], ["quiet", `${f} silent`]];
+  return state.scenario === "s" ? stationary : state.scenario === "all" ? changed.concat(stationary) : changed;
 }
+// Whether a history belongs to a group card; first10 overlaps alarm, every other group is a partition.
+const inGroup = (r, key) => (key === "first10" ? r.group === "alarm" && r.first10 : r.group === key);
+const inView = (r, key) => inGroup(r, key) && (state.scenario === "all" || r.sc === state.scenario);
 function tally(members) {
   const c = { n: 0, s: 0, u: 0 };
   for (const r of members) if (flags[r.id]) c[flags[r.id]]++;
@@ -344,7 +397,7 @@ function renderGroups() {
   $("groups").innerHTML = "";
   for (const [key, label] of list) {
     // Count within the scenario filter, so a card agrees with the matrix it opens.
-    const members = rows.filter((r) => r.group === key && (state.scenario === "all" || r.sc === state.scenario));
+    const members = rows.filter((r) => inView(r, key));
     const by = (c) => members.filter((r) => r.sc === c).length;
     const t = tally(members);
     const b = document.createElement("button");
@@ -367,7 +420,7 @@ function cellColor(r, t) {
   if (state.view === "topics") return TOPIC[r.tp[t]];
   const mid = css("--heat-mid");
   if (state.view === "conc") { const x = r.conc[t]; return isNaN(x) ? mid : mix(mid, css("--conc-high"), Math.max(0, (x - 0.2) / 0.8)); }
-  const x = r.rel.r10[t];
+  const x = r.rel[state.focus || "r10"][t];
   if (isNaN(x)) return mid;
   return x < 1 ? mix(mid, css("--heat-low"), Math.min(1, (1 - x) / 0.5)) : mix(mid, css("--heat-high"), Math.min(1, (x - 1) / 0.5));
 }
@@ -408,7 +461,7 @@ function renderLegend() {
   if (!hasTruth()) html += `<span><span class="sw" style="background:var(--switch)"></span>switch to MF at step 20${state.ref === "early_mf" ? " · faint: alarms count from 30" : ""}</span>`;
   if (state.view === "topics") html += `<div class="topics">${TOPIC.map((c, i) => `<span><span class="sw" style="background:${c}"></span>T${i}</span>`).join("")}</div>`;
   else if (state.view === "conc") html += `<span>share of last 10 items in their top 2 topics: 0.2<span class="ramp" style="background:linear-gradient(90deg,var(--heat-mid),var(--conc-high))"></span>1.0</span>`;
-  else html += `<span>Rolling-10 ÷ its reference value: 0.5<span class="ramp" style="background:linear-gradient(90deg,var(--heat-low),var(--heat-mid),var(--heat-high))"></span>1.5</span>`;
+  else html += `<span>${DNAME[state.focus || "r10"]} ÷ its reference value: 0.5<span class="ramp" style="background:linear-gradient(90deg,var(--heat-low),var(--heat-mid),var(--heat-high))"></span>1.5</span>`;
   $("legend").innerHTML = html;
 }
 
@@ -470,7 +523,7 @@ function setFlag(v) {
 function rng(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
   t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
 function drawAudit() {
-  const pool = rows.filter((r) => r.group === state.group && (state.scenario === "all" || r.sc === state.scenario)).sort((a, b) => a.user - b.user || a.id.localeCompare(b.id));
+  const pool = rows.filter((r) => inView(r, state.group)).sort((a, b) => a.user - b.user || a.id.localeCompare(b.id));
   const rand = rng(AUDIT_SEED), picked = pool.slice();
   for (let i = picked.length - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); [picked[i], picked[j]] = [picked[j], picked[i]]; }
   state.audit = { ids: new Set(picked.slice(0, AUDIT_SIZE).map((r) => r.id)), of: pool.length };
@@ -486,7 +539,9 @@ function syncControls() {
   if (!state.focus) { if (state.groupBy === "focus") state.groupBy = syn ? "truth" : "alarms"; if (state.sort === "others") state.sort = "conc"; }
   $("groupBy").querySelector('[value="truth"]').disabled = !syn;
   $("groupBy").querySelector('[value="focus"]').disabled = !state.focus;
-  $("sort").querySelector('[value="others"]').disabled = !state.focus;
+  const others = $("sort").querySelector('[value="others"]');
+  others.disabled = !state.focus;
+  others.textContent = !syn || state.scenario === "s" ? "Other detectors differ on alarm" : "Other detectors differ on hit/miss";
   $("truth").disabled = !syn; $("scenario").disabled = !syn; $("ref").disabled = syn;
   $("sort").querySelector('[value="tstar"]').disabled = !syn;
   for (const id of ["groupBy", "ref", "alpha", "scenario", "sort"]) $(id).value = state[id];
@@ -498,7 +553,7 @@ function render() {
   evaluate();
   renderOverview();
   renderGroups();
-  let list = rows.filter((r) => r.group === state.group && (state.scenario === "all" || r.sc === state.scenario));
+  let list = rows.filter((r) => inView(r, state.group));
   if (state.audit) list = list.filter((r) => state.audit.ids.has(r.id));
   shown = sortRows(list);
   const label = groupList().find(([k]) => k === state.group)[1] + (state.scenario !== "all" ? " · " + SC[state.scenario] : "");
@@ -515,7 +570,7 @@ for (const id of ["dataset", "groupBy", "ref", "alpha", "scenario", "sort", "vie
   if (id === "dataset") { state.focus = null; state.groupBy = state.dataset === "synthetic" ? "truth" : "alarms"; }
   render();
 });
-$("overview").addEventListener("click", (e) => { const b = e.target.closest("button[data-d]"); if (b) focusOn(b.dataset.d, b.dataset.a, b.dataset.sc); });
+$("overview").addEventListener("click", (e) => { const b = e.target.closest("button[data-d]"); if (b) focusOn(b.dataset.d, b.dataset.a, b.dataset.sc, b.dataset.g); });
 $("focusClear").onclick = clearFocus;
 $("scale").addEventListener("input", (e) => { state.scale = +e.target.value; $("scaleOut").textContent = state.scale.toFixed(2) + "×"; state.audit = null; render(); });
 $("truth").addEventListener("change", (e) => { state.truth = e.target.checked; render(); });
