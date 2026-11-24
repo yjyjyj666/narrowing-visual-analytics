@@ -1,0 +1,422 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Detector Triage</title>
+<style>
+/* Layout: control strip on top, user-by-step canvas on the left, one user's detail on the right; stacks below 900px. */
+:root {
+  --bg: #f6f7f5; --surface: #ffffff; --fg: #1d2421; --muted: #5d6863; --line: #d9ddd9;
+  --accent: #0f766e; --ok: #2f7d4f; --bad: #b42318; --truth: #d6336c; --switch: #7048e8;
+  --heat-mid: #ecebe6; --heat-low: #c2410c; --heat-high: #2563eb; --conc-high: #6d28d9;
+  --det-c: #e8590c; --det-r10: #1c7ed6; --det-r20: #0ca678;
+  --sans: system-ui, -apple-system, "Segoe UI", "Helvetica Neue", sans-serif;
+  --mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root {
+  --bg: #131716; --surface: #1b2120; --fg: #e4e9e6; --muted: #99a59f; --line: #2f3836;
+  --accent: #2dd4bf; --ok: #4ade80; --bad: #f87171; --truth: #f472b6; --switch: #b197fc;
+  --heat-mid: #2b3230; --heat-low: #fb923c; --heat-high: #60a5fa; --conc-high: #a78bfa;
+  --det-c: #ff922b; --det-r10: #4dabf7; --det-r20: #38d9a9; color-scheme: dark } }
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--sans); font-size: 14px; line-height: 1.5; padding: 20px 16px 40px; }
+.wrap { max-width: 1320px; margin: 0 auto; display: grid; gap: 14px; }
+h1 { font-size: 22px; font-weight: 600; margin: 0; }
+.lede { color: var(--muted); margin: 4px 0 0; max-width: 85ch; }
+.mono { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+.controls { display: flex; flex-wrap: wrap; gap: 12px 18px; align-items: end; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }
+.field { display: grid; gap: 4px; }
+.field > span { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+select, button { font: inherit; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 5px 9px; }
+select:disabled, input:disabled + span { opacity: 0.45; }
+button { cursor: pointer; }
+button[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+input[type=range] { accent-color: var(--accent); width: 140px; }
+.check { display: flex; gap: 6px; align-items: center; padding-bottom: 5px; }
+.groups { display: flex; flex-wrap: wrap; gap: 8px; }
+.group { text-align: left; display: grid; gap: 2px; padding: 8px 12px; min-width: 190px; background: var(--surface); }
+.group b { font-weight: 600; }
+.group small { color: var(--muted); font-family: var(--mono); font-size: 11px; }
+.main { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+@media (max-width: 900px) { .main { grid-template-columns: minmax(0, 1fr); } }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; min-width: 0; display: grid; gap: 10px; }
+.panel h2 { font-size: 14px; font-weight: 600; margin: 0; }
+.bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; }
+.audit { font-size: 12px; padding: 6px 10px; border-radius: 6px; border: 1px dashed var(--accent); color: var(--fg); }
+.scroller { max-height: 560px; overflow-y: auto; border: 1px solid var(--line); border-radius: 4px; }
+canvas { display: block; width: 100%; cursor: crosshair; }
+.status { font-size: 12px; color: var(--muted); min-height: 18px; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--muted); align-items: center; }
+.sw { display: inline-block; width: 11px; height: 11px; border-radius: 2px; vertical-align: -1px; margin-right: 4px; }
+.topics { display: grid; grid-template-columns: repeat(10, minmax(0, 1fr)); gap: 3px 8px; font-size: 11px; color: var(--muted); width: 100%; }
+.ramp { width: 120px; height: 10px; border-radius: 2px; display: inline-block; vertical-align: -1px; margin: 0 4px; }
+.verdicts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.verdict { border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; font-size: 12px; }
+.verdict b { display: block; font-weight: 600; }
+.pill { display: inline-block; font-size: 11px; font-family: var(--mono); padding: 1px 6px; border-radius: 999px; border: 1px solid currentColor; }
+.ok { color: var(--ok); } .bad { color: var(--bad); }
+.flags { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.note { font-size: 12px; color: var(--muted); margin: 0; }
+svg text { fill: var(--muted); font-family: var(--mono); font-size: 10px; }
+[hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Detector Triage</h1>
+    <p class="lede">A rough prototype for finding where diversity detectors go wrong. Each row is one consumption history and each column one step (0-based). <b>Synthetic</b> histories have a known change point, so you can check yourself against the truth. <b>MF</b> histories have none: only disagreements are certain to contain an error, so agreeing groups are sorted to put the likeliest shared errors first, and a random audit sample estimates how many there are.</p>
+  </header>
+
+  <section class="controls" aria-label="Controls">
+    <label class="field"><span>Data</span>
+      <select id="dataset"><option value="synthetic">Synthetic (seed 5)</option><option value="mf">MF candidate (seed 123)</option></select></label>
+    <label class="field"><span>Group by</span>
+      <select id="groupBy"><option value="truth">Correctness (needs truth)</option><option value="alarms">Alarms only</option></select></label>
+    <label class="field"><span>Reference</span>
+      <select id="ref"><option value="startup">Step 19</option><option value="early_mf">Step 29 (MF only)</option></select></label>
+    <label class="field"><span>False-alarm target</span>
+      <select id="alpha"><option>0.05</option><option selected>0.10</option><option>0.20</option></select></label>
+    <label class="field"><span>Threshold scale <output id="scaleOut" class="mono">1.00×</output></span>
+      <input id="scale" type="range" min="0.5" max="1.5" step="0.05" value="1"></label>
+    <label class="field"><span>Scenario</span>
+      <select id="scenario"><option value="all">All</option><option value="s">Stationary</option><option value="a">Abrupt</option><option value="g">Gradual</option></select></label>
+    <label class="field"><span>Sort rows by</span>
+      <select id="sort">
+        <option value="conc">Topic concentration rise</option>
+        <option value="margin">Closest to the threshold</option>
+        <option value="atyp">Least like the rest of the group</option>
+        <option value="alarm">Earliest alarm</option>
+        <option value="tstar">Change point (needs truth)</option>
+        <option value="user">User id</option>
+      </select></label>
+    <label class="field"><span>Cells show</span>
+      <select id="view"><option value="topics">Topic consumed</option><option value="conc">Recent topic concentration</option><option value="div">Rolling-10 vs reference</option></select></label>
+    <label class="check"><input id="truth" type="checkbox"><span>Show ground truth</span></label>
+  </section>
+
+  <div class="groups" id="groups" role="group" aria-label="Groups"></div>
+
+  <div class="main">
+    <section class="panel" aria-label="Histories">
+      <div class="bar">
+        <h2 id="listTitle">Histories</h2>
+        <span><button id="auditBtn">Draw 20 at random</button> <button id="wholeBtn" hidden>Show whole group</button></span>
+      </div>
+      <div class="audit" id="auditNote" hidden></div>
+      <div class="legend" id="legend"></div>
+      <div class="scroller" id="scroller"><canvas id="grid" height="200"></canvas></div>
+      <div class="status mono" id="status">Loading data…</div>
+    </section>
+    <section class="panel" aria-label="Selected history">
+      <h2 id="detailTitle">Select a row</h2>
+      <p class="note" id="detailHint">Click a row on the left to see its three diversity series relative to the reference, each detector's threshold, and the topics consumed.</p>
+      <div id="chart"></div>
+      <div class="verdicts" id="verdicts"></div>
+      <div class="flags" id="flags" hidden>
+        <span class="note">Your judgment:</span>
+        <button id="flag-n">Looks narrowed</button>
+        <button id="flag-s">Looks stable</button>
+        <button id="flag-u">Can't tell</button>
+        <button id="flag-x">Clear</button>
+      </div>
+      <p class="note mono" id="flagSummary"></p>
+    </section>
+  </div>
+  <p class="note">Alarms are recomputed in the page from series rounded to 4 decimals, with thresholds from the synthetic calibration (seeds 0–4) times the threshold scale, so a few may differ from the published tables. Recent topic concentration is the share of the last 10 items held by their two most frequent topics; its rise compares steps 90–119 with the 10 steps ending at the reference. It uses neither the diversity measure nor the user's preferences. Your judgments are saved in this browser only.</p>
+</div>
+
+<script src="../data/triage_data.js"></script>
+<script>
+// Step 1: constants and state.
+const DET = ["c", "r10", "r20"];
+const DNAME = { c: "Cumulative", r10: "Rolling-10", r20: "Rolling-20" };
+const DFULL = { c: "cumulative", r10: "rolling10", r20: "rolling20" };
+const TOPIC = ["#4e79a7","#a0cbe8","#f28e2b","#ffbe7d","#59a14f","#8cd17d","#b6992d","#f1ce63","#499894","#86bcb6",
+               "#e15759","#ff9d9a","#79706e","#bab0ac","#d37295","#fabfd2","#b07aa1","#d4a6c8","#9d7660","#d7b5a6"];
+const SC = { s: "stationary", a: "abrupt", g: "gradual", m: "MF" };
+// Reference name -> [reference index, first index at which an alarm can fire] (docs/spec.md §7).
+const REFS = { startup: [19, 20], early_mf: [29, 30] };
+const AUDIT_SIZE = 20, AUDIT_SEED = 2026;
+const $ = (id) => document.getElementById(id);
+const state = { dataset: "synthetic", groupBy: "truth", ref: "startup", alpha: "0.10", scale: 1, scenario: "all",
+                sort: "conc", view: "topics", truth: false, group: "allwrong", selected: null, audit: null };
+let DATA = window.TRIAGE_DATA, sets = {}, rows = [], shown = [], rowH = 6, flags = {};
+try { flags = JSON.parse(localStorage.getItem("triage-flags") || "{}"); } catch (e) { flags = {}; }
+
+function css(name) { return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+function hexToRgb(h) { const n = parseInt(h.replace("#", ""), 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; }
+function mix(a, b, t) { const A = hexToRgb(a), B = hexToRgb(b); return `rgb(${A.map((v, i) => Math.round(v + (B[i] - v) * t)).join(",")})`; }
+const mean = (a, lo, hi) => { let x = 0; for (let i = lo; i <= hi; i++) x += a[i]; return x / (hi - lo + 1); };
+
+// Step 2: per-history quantities that depend on neither threshold nor reference.
+function prepare(r) {
+  const dec = (xs) => xs.map((x) => (x < 0 ? NaN : x / 10000));
+  const conc = new Array(120).fill(NaN);
+  for (let t = 9; t < 120; t++) {
+    const counts = {};
+    for (let i = t - 9; i <= t; i++) counts[r.tp[i]] = (counts[r.tp[i]] || 0) + 1;
+    const top = Object.values(counts).sort((a, b) => b - a);
+    conc[t] = ((top[0] || 0) + (top[1] || 0)) / 10;
+  }
+  return { id: r.id, sc: r.sc, user: r.u, t: r.t, tp: r.tp, conc, s: { c: dec(r.c), r10: dec(r.r10), r20: dec(r.r20) } };
+}
+
+// Step 3: alarm rule, scoring and the three sorting scores.
+function firstAlarm(v, theta, refIdx, start) {
+  const limit = (1 - theta) * v[refIdx];
+  let run = 0;
+  for (let t = start; t < 120; t++) { if (v[t] < limit) { if (++run === 3) return t; } else run = 0; }
+  return -1;
+}
+function isCorrect(r, a) { return r.sc === "s" ? a < 0 : a >= r.t && a <= r.t + 39; }
+function thetaOf(d) { return DATA.thetas[DFULL[d]][state.alpha] * state.scale; }
+const hasTruth = () => state.dataset === "synthetic";
+
+function evaluate() {
+  const [refIdx, start] = REFS[state.ref];
+  for (const r of rows) {
+    r.alarm = {}; r.ok = {}; r.margin = Infinity; r.rel = {};
+    for (const d of DET) {
+      const v = r.s[d], th = thetaOf(d);
+      r.rel[d] = v.map((x) => x / v[refIdx]);
+      r.alarm[d] = firstAlarm(v, th, refIdx, start);
+      r.ok[d] = hasTruth() ? isCorrect(r, r.alarm[d]) : null;
+      // Lowest relative value minus the limit: small positive means "nearly alarmed", negative means it did.
+      let low = Infinity; for (let t = start; t < 120; t++) low = Math.min(low, r.rel[d][t]);
+      r.margin = Math.min(r.margin, low - (1 - th));
+    }
+    const fired = DET.filter((d) => r.alarm[d] >= 0);
+    r.firstAlarm = fired.length ? Math.min(...fired.map((d) => r.alarm[d])) : 999;
+    r.concRise = mean(r.conc, 90, 119) - mean(r.conc, refIdx - 9, refIdx);
+    const n = state.groupBy === "truth" ? DET.filter((d) => r.ok[d]).length : fired.length;
+    r.group = state.groupBy === "truth" ? (n === 3 ? "allright" : n === 0 ? "allwrong" : "disagree")
+                                         : (n === 3 ? "allalarm" : n === 0 ? "noalarm" : "disagree");
+  }
+  // Atypicality: mean distance of a history's relative series from its group's median curve.
+  const groups = {};
+  for (const r of rows) (groups[r.group] = groups[r.group] || []).push(r);
+  for (const members of Object.values(groups)) {
+    const median = {};
+    for (const d of DET) {
+      median[d] = [];
+      for (let t = start; t < 120; t++) {
+        const xs = members.map((r) => r.rel[d][t]).sort((a, b) => a - b);
+        median[d][t] = xs[Math.floor(xs.length / 2)];
+      }
+    }
+    for (const r of members) {
+      let dist = 0;
+      for (const d of DET) for (let t = start; t < 120; t++) dist += Math.abs(r.rel[d][t] - median[d][t]);
+      r.atyp = dist / (3 * (120 - start));
+    }
+  }
+}
+
+// Step 4: group buttons, with each group's tally of your judgments.
+const GROUPS = {
+  truth: [["disagree", "Detectors disagree"], ["allwrong", "All three wrong"], ["allright", "All three right"]],
+  alarms: [["disagree", "Detectors disagree"], ["noalarm", "No detector alarms"], ["allalarm", "All three alarm"]],
+};
+function tally(members) {
+  const c = { n: 0, s: 0, u: 0 };
+  for (const r of members) if (flags[r.id]) c[flags[r.id]]++;
+  return c;
+}
+function renderGroups() {
+  const list = GROUPS[state.groupBy];
+  if (!list.some(([k]) => k === state.group)) state.group = list[0][0];
+  $("groups").innerHTML = "";
+  for (const [key, label] of list) {
+    const members = rows.filter((r) => r.group === key);
+    const by = (c) => members.filter((r) => r.sc === c).length;
+    const t = tally(members);
+    const b = document.createElement("button");
+    b.className = "group"; b.setAttribute("aria-pressed", String(state.group === key));
+    b.innerHTML = `<b>${label}</b><span class="mono">${members.length} histories</span>` +
+      (hasTruth() && (state.truth || state.groupBy === "truth") ? `<small>stationary ${by("s")} · abrupt ${by("a")} · gradual ${by("g")}</small>` : "") +
+      `<small>judged: ${t.n} narrowed · ${t.s} stable · ${t.u} unsure</small>`;
+    b.onclick = () => { state.group = key; state.selected = null; state.audit = null; render(); };
+    $("groups").appendChild(b);
+  }
+}
+
+// Step 5: the user-by-step canvas.
+function sortRows(list) {
+  const key = { conc: (r) => -r.concRise, margin: (r) => r.margin, atyp: (r) => -r.atyp, alarm: (r) => r.firstAlarm,
+                tstar: (r) => r.t, user: (r) => r.user }[state.sort];
+  return list.sort((a, b) => key(a) - key(b) || a.user - b.user);
+}
+function cellColor(r, t) {
+  if (state.view === "topics") return TOPIC[r.tp[t]];
+  const mid = css("--heat-mid");
+  if (state.view === "conc") { const x = r.conc[t]; return isNaN(x) ? mid : mix(mid, css("--conc-high"), Math.max(0, (x - 0.2) / 0.8)); }
+  const x = r.rel.r10[t];
+  if (isNaN(x)) return mid;
+  return x < 1 ? mix(mid, css("--heat-low"), Math.min(1, (1 - x) / 0.5)) : mix(mid, css("--heat-high"), Math.min(1, (x - 1) / 0.5));
+}
+function drawGrid() {
+  const canvas = $("grid"), width = $("scroller").clientWidth, n = shown.length;
+  rowH = Math.max(5, Math.min(16, Math.floor(520 / Math.max(n, 1))));
+  const statusW = 30, colW = (width - statusW) / 120, height = Math.max(rowH * n, 40);
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = width * dpr; canvas.height = height * dpr; canvas.style.height = height + "px";
+  const g = canvas.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.fillStyle = css("--surface"); g.fillRect(0, 0, width, height);
+  if (!n) { g.fillStyle = css("--muted"); g.font = "12px " + css("--sans"); g.fillText("No histories in this group.", 10, 24); return; }
+  const fg = css("--fg");
+  shown.forEach((r, i) => {
+    const y = i * rowH;
+    for (let t = 0; t < 120; t++) { g.fillStyle = cellColor(r, t); g.fillRect(t * colW, y, Math.ceil(colW), rowH - (rowH > 6 ? 1 : 0)); }
+    if (state.truth && r.t >= 0) { g.fillStyle = css("--truth"); g.fillRect(r.t * colW - 1, y, 2, rowH); }
+    // Alarm ticks: cumulative in the top third of the row, Rolling-10 middle, Rolling-20 bottom.
+    DET.forEach((d, k) => { const a = r.alarm[d]; if (a >= 0) { g.fillStyle = fg; g.fillRect(a * colW, y + (k * rowH) / 3, Math.max(2, colW), rowH / 3); } });
+    DET.forEach((d, k) => {
+      g.fillStyle = state.truth ? (r.ok[d] ? css("--ok") : css("--bad")) : (r.alarm[d] >= 0 ? fg : css("--heat-mid"));
+      g.fillRect(width - statusW + 3 + k * 9, y + 1, 7, Math.max(2, rowH - 2));
+    });
+    if (flags[r.id]) { g.fillStyle = css("--accent"); g.fillRect(width - statusW - 4, y, 3, rowH); }
+    if (state.selected === r.id) { g.strokeStyle = css("--accent"); g.lineWidth = 2; g.strokeRect(1, y + 1, width - 2, rowH - 1); }
+  });
+  // MF: mark the switch from random startup to MF, and the reference step.
+  if (!hasTruth()) {
+    g.fillStyle = css("--switch"); g.fillRect(20 * colW - 1, 0, 2, height);
+    if (state.ref === "early_mf") { g.globalAlpha = 0.5; g.fillRect(30 * colW - 1, 0, 1, height); g.globalAlpha = 1; }
+  }
+}
+function renderLegend() {
+  let html = `<span><span class="sw" style="background:var(--fg)"></span>alarm tick: cumulative top · Rolling-10 middle · Rolling-20 bottom third</span>` +
+    `<span>right squares: ${state.truth ? '<span class="ok">right</span> / <span class="bad">wrong</span>' : "alarm / none"} per detector</span>` +
+    `<span><span class="sw" style="background:var(--accent)"></span>you judged this row</span>`;
+  if (state.truth) html += `<span><span class="sw" style="background:var(--truth)"></span>known change point</span>`;
+  if (!hasTruth()) html += `<span><span class="sw" style="background:var(--switch)"></span>switch to MF at step 20${state.ref === "early_mf" ? " · faint: alarms count from 30" : ""}</span>`;
+  if (state.view === "topics") html += `<div class="topics">${TOPIC.map((c, i) => `<span><span class="sw" style="background:${c}"></span>T${i}</span>`).join("")}</div>`;
+  else if (state.view === "conc") html += `<span>share of last 10 items in their top 2 topics: 0.2<span class="ramp" style="background:linear-gradient(90deg,var(--heat-mid),var(--conc-high))"></span>1.0</span>`;
+  else html += `<span>Rolling-10 ÷ its reference value: 0.5<span class="ramp" style="background:linear-gradient(90deg,var(--heat-low),var(--heat-mid),var(--heat-high))"></span>1.5</span>`;
+  $("legend").innerHTML = html;
+}
+
+// Step 6: the detail view of one history.
+function renderDetail() {
+  const r = rows.find((x) => x.id === state.selected);
+  $("flags").hidden = !r;
+  renderFlagSummary();
+  if (!r) { $("detailTitle").textContent = "Select a row"; $("detailHint").hidden = false; $("chart").innerHTML = ""; $("verdicts").innerHTML = ""; return; }
+  $("detailHint").hidden = true;
+  const [refIdx, start] = REFS[state.ref];
+  $("detailTitle").textContent = !hasTruth() ? `MF seed ${DATA.mf.seed} · user ${r.user}`
+    : state.truth ? `${r.id} · ${SC[r.sc]}${r.t >= 0 ? " · change at step " + r.t : ""}` : `User ${r.user} · scenario hidden`;
+  const W = 520, H = 230, L = 34, R = 8, top = 8, plotH = 150, stripY = 172, lo = 0.4, hi = 1.4;
+  const x = (t) => L + (t / 119) * (W - L - R);
+  const y = (v) => top + (1 - (Math.min(hi, Math.max(lo, v)) - lo) / (hi - lo)) * plotH;
+  let svg = `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="Diversity relative to the reference, with thresholds and topics">`;
+  for (const v of [0.6, 0.8, 1.0, 1.2]) svg += `<line x1="${L}" x2="${W - R}" y1="${y(v)}" y2="${y(v)}" stroke="var(--line)"/><text x="4" y="${y(v) + 3}">${v.toFixed(1)}</text>`;
+  svg += `<line x1="${x(refIdx)}" x2="${x(refIdx)}" y1="${top}" y2="${top + plotH}" stroke="var(--muted)" stroke-dasharray="2 3"/>`;
+  if (!hasTruth()) svg += `<line x1="${x(20)}" x2="${x(20)}" y1="${top}" y2="${stripY + 14}" stroke="var(--switch)" stroke-width="1.5"/>`;
+  if (state.truth && r.t >= 0) svg += `<line x1="${x(r.t)}" x2="${x(r.t)}" y1="${top}" y2="${stripY + 14}" stroke="var(--truth)" stroke-width="2"/>`;
+  for (const d of DET) {
+    const col = `var(--det-${d})`, rel = r.rel[d];
+    const pts = rel.map((v, t) => (isNaN(v) ? null : `${x(t).toFixed(1)},${y(v).toFixed(1)}`)).filter(Boolean).join(" ");
+    svg += `<polyline points="${pts}" fill="none" stroke="${col}" stroke-width="1.6"/>`;
+    svg += `<line x1="${x(start)}" x2="${W - R}" y1="${y(1 - thetaOf(d))}" y2="${y(1 - thetaOf(d))}" stroke="${col}" stroke-dasharray="4 3" opacity="0.8"/>`;
+    if (r.alarm[d] >= 0) svg += `<circle cx="${x(r.alarm[d])}" cy="${y(rel[r.alarm[d]])}" r="4" fill="${col}" stroke="var(--surface)" stroke-width="1.5"/>`;
+  }
+  const cw = (W - L - R) / 120;
+  r.tp.forEach((tp, t) => { svg += `<rect x="${(L + t * cw).toFixed(2)}" y="${stripY}" width="${(cw + 0.3).toFixed(2)}" height="14" fill="${TOPIC[tp]}"/>`; });
+  svg += `<text x="4" y="${stripY + 11}">topic</text>`;
+  for (const t of [0, 20, 40, 60, 80, 100, 119]) svg += `<text x="${x(t)}" y="${H - 22}" text-anchor="middle">${t}</text>`;
+  svg += `<text x="${(L + W) / 2}" y="${H - 6}" text-anchor="middle">step (dashed grey: reference at ${refIdx})</text></svg>`;
+  $("chart").innerHTML = svg + `<div class="legend">${DET.map((d) => `<span><span class="sw" style="background:var(--det-${d})"></span>${DNAME[d]} ÷ value at ${refIdx} (dashed: its threshold)</span>`).join("")}</div>`;
+  $("verdicts").innerHTML = DET.map((d) => {
+    const a = r.alarm[d], verdict = state.truth ? ` <span class="pill ${r.ok[d] ? "ok" : "bad"}">${r.ok[d] ? "right" : "wrong"}</span>` : "";
+    return `<div class="verdict"><b>${DNAME[d]}</b><span class="mono">${a >= 0 ? "alarm at " + a : "no alarm"}</span>${verdict}<br><span class="note mono">θ = ${thetaOf(d).toFixed(3)}</span></div>`;
+  }).join("");
+  for (const k of ["n", "s", "u"]) $("flag-" + k).setAttribute("aria-pressed", String(flags[r.id] === k));
+}
+function renderFlagSummary() {
+  const mine = rows.filter((r) => flags[r.id]);
+  let text = `${mine.length} judged in this dataset`;
+  if (state.truth && mine.length) {
+    const decided = mine.filter((r) => flags[r.id] !== "u");
+    const agree = decided.filter((r) => (flags[r.id] === "n") === (r.sc !== "s")).length;
+    text += ` · ${agree} of ${decided.length} decided judgments match the truth`;
+  }
+  $("flagSummary").textContent = text;
+}
+function setFlag(v) {
+  if (!state.selected) return;
+  if (v) flags[state.selected] = v; else delete flags[state.selected];
+  try { localStorage.setItem("triage-flags", JSON.stringify(flags)); } catch (e) { /* kept in memory only */ }
+  renderGroups(); drawGrid(); renderDetail();
+}
+
+// Step 7: random audit sample: a fixed-seed draw from the current group, so a tally estimates the whole group.
+function rng(seed) { return () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+  t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
+function drawAudit() {
+  const pool = rows.filter((r) => r.group === state.group && (state.scenario === "all" || r.sc === state.scenario)).sort((a, b) => a.user - b.user || a.id.localeCompare(b.id));
+  const rand = rng(AUDIT_SEED), picked = pool.slice();
+  for (let i = picked.length - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); [picked[i], picked[j]] = [picked[j], picked[i]]; }
+  state.audit = { ids: new Set(picked.slice(0, AUDIT_SIZE).map((r) => r.id)), of: pool.length };
+  state.selected = null; render();
+}
+
+// Step 8: controls and rendering.
+function syncControls() {
+  const syn = hasTruth();
+  if (!syn) { state.groupBy = "alarms"; state.truth = false; state.scenario = "all"; if (state.sort === "tstar") state.sort = "conc"; }
+  else if (state.ref !== "startup") state.ref = "startup";
+  $("groupBy").disabled = !syn; $("truth").disabled = !syn; $("scenario").disabled = !syn; $("ref").disabled = syn;
+  $("sort").querySelector('[value="tstar"]').disabled = !syn;
+  for (const id of ["groupBy", "ref", "scenario", "sort"]) $(id).value = state[id];
+  $("truth").checked = state.truth;
+}
+function render() {
+  syncControls();
+  rows = sets[state.dataset];
+  evaluate();
+  renderGroups();
+  let list = rows.filter((r) => r.group === state.group && (state.scenario === "all" || r.sc === state.scenario));
+  if (state.audit) list = list.filter((r) => state.audit.ids.has(r.id));
+  shown = sortRows(list);
+  const label = GROUPS[state.groupBy].find(([k]) => k === state.group)[1];
+  $("listTitle").textContent = `${label} · ${shown.length} histories`;
+  $("auditNote").hidden = !state.audit; $("wholeBtn").hidden = !state.audit;
+  if (state.audit) $("auditNote").textContent = `Audit sample: ${shown.length} of ${state.audit.of} drawn at random (seed ${AUDIT_SEED}). Judge every row; the group tally then estimates how this group splits. Sorting does not change which rows are in the sample.`;
+  renderLegend(); drawGrid(); renderDetail();
+  $("status").textContent = shown.length ? "Hover a row for details; click to open it." : "";
+}
+for (const id of ["dataset", "groupBy", "ref", "alpha", "scenario", "sort", "view"]) $(id).addEventListener("change", (e) => {
+  state[id] = e.target.value;
+  if (["dataset", "groupBy", "ref", "alpha", "scenario"].includes(id)) { state.audit = null; state.selected = null; }
+  render();
+});
+$("scale").addEventListener("input", (e) => { state.scale = +e.target.value; $("scaleOut").textContent = state.scale.toFixed(2) + "×"; state.audit = null; render(); });
+$("truth").addEventListener("change", (e) => { state.truth = e.target.checked; render(); });
+$("auditBtn").onclick = drawAudit;
+$("wholeBtn").onclick = () => { state.audit = null; render(); };
+for (const k of ["n", "s", "u"]) $("flag-" + k).onclick = () => setFlag(k);
+$("flag-x").onclick = () => setFlag(null);
+function rowAt(ev) { const rect = $("grid").getBoundingClientRect(); return shown[Math.floor((ev.clientY - rect.top) / rowH)]; }
+$("grid").addEventListener("click", (ev) => { const r = rowAt(ev); if (r) { state.selected = r.id; drawGrid(); renderDetail(); } });
+$("grid").addEventListener("mousemove", (ev) => {
+  const r = rowAt(ev); if (!r) return;
+  const rect = $("grid").getBoundingClientRect(), step = Math.min(119, Math.max(0, Math.floor(((ev.clientX - rect.left) / (rect.width - 30)) * 120)));
+  const alarms = DET.map((d) => `${DNAME[d]} ${r.alarm[d] >= 0 ? r.alarm[d] : "–"}`).join(" · ");
+  $("status").textContent = `user ${r.user}${state.truth ? " · " + SC[r.sc] : ""} · step ${step} · topic ${r.tp[step]} · alarms: ${alarms} · concentration rise ${r.concRise.toFixed(2)} · atypicality ${r.atyp.toFixed(3)}`;
+});
+window.addEventListener("resize", () => drawGrid());
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", render);
+
+if (!DATA) {
+  $("status").textContent = "Data not found. Run: python prototype/build_triage_data.py";
+} else {
+  sets.synthetic = DATA.synthetic.records.map(prepare);
+  sets.mf = DATA.mf.records.map((r) => ({ ...prepare(r), sc: "m" }));
+  render();
+}
+</script>
+</body>
+</html>
