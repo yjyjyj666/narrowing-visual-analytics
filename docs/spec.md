@@ -81,7 +81,7 @@ Report the seeds with every result.
 
 **Open record**: the main experiment uses *k* = 2. The *k* = 1 versus *k* = 2 pilot that selected it, with its seeds and comparison, still needs to be recorded in `docs/synthetic_experiment.md`.
 
-## 7. MF application case (Implemented: `scripts/run_mf_experiment.py`; original configuration in `scripts/run_mf_case.py`)
+## 7. MF application case (Implemented: `scripts/run_mf_experiment.py`)
 
 - **Shared settings**:
   - Preferences fixed (drift = 0).
@@ -93,7 +93,7 @@ Report the seeds with every result.
   - Each MF slate holds 8 ranked MF items and 2 items drawn uniformly from the other eligible items.
 - **Original configuration**: `CheckedImplicitMF` with 10 latent factors and slates of 10 ranked items.
   - Its late top-ten ranking fell below a Random slate, so it did not act as a working recommender in the second half of the run.
-  - Its histories are no longer used for MF results. They are kept only as a comparison.
+  - Its results were removed. `scripts/run_mf_experiment.py --policies baseline` still runs it for comparison.
 - **Two references**, both reported:
   - `startup`: the value at index 19; alarms are counted from index 20.
   - `early_mf`: the value at index 29; alarms are counted from index 30.
