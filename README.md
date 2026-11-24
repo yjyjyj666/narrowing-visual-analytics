@@ -11,7 +11,11 @@ Simulator readiness and initial model-behavior checks are complete for the teste
 
 See the [RQ1 and RQ2 findings](docs/rq1_rq2_findings.md), [experiment design and reproduction steps](docs/synthetic_experiment.md), and [abrupt versus gradual narrowing comparison](results/synthetic/rq2_abrupt_vs_gradual.png).
 
-The linked visualization, alternate-label comparison, and matrix-factorization application case are planned next.
+The matrix-factorization application case, the H1 check with the pilot's label, the equal-sample diagnostic and the JSON export for the visualization are implemented; their results are provisional until the settings marked Proposed in the spec are confirmed. The MF data now come from the candidate configuration in [docs/mf_pipeline_experiment.md](docs/mf_pipeline_experiment.md), because the original MF ranked items worse than Random late in the run. See [MF case, H1 label check and equal-sample diagnostic](docs/mf_h1_diagnostic_findings.md) for results and reproduction steps.
+
+The linked visualization is planned next.
+
+Shared definitions (indexing, scoring, seeds and data files) are in [docs/spec.md](docs/spec.md). Rules for contributors and coding agents are in [AGENTS.md](AGENTS.md). Assumptions behind the experiments, and what they limit, are tracked in [docs/assumptions_and_limitations.md](docs/assumptions_and_limitations.md).
 
 ## Diversity measures
 
@@ -60,11 +64,13 @@ From the repository root, with the environment active:
 ```bash
 python scripts/check_adapter.py
 python scripts/check_metrics.py
+python scripts/check_export.py data/sample
+python scripts/check_mf_experiment.py
 python scripts/check_readiness.py
 python scripts/audit_behavior.py --iterations 20 --corrected-only
 ```
 
-The first command is a small smoke test. The second compares the diversity measures with brute-force pairwise distances and checks the alarm rule on fixed series; it takes about a second. The readiness script runs two original MF configurations and one Random reference. The final command uses the local adapter and runs two updated models and a frozen-model reference. To also run original-versus-adapted comparisons, omit `--corrected-only`.
+The first command is a small smoke test. The second compares the diversity measures with brute-force pairwise distances and checks the alarm rule and the recent-versus-early ratio; it takes about a second. The third checks the committed visualization data sample against the spec. The readiness script runs two original MF configurations and one Random reference. The final command uses the local adapter and runs two updated models and a frozen-model reference. To also run original-versus-adapted comparisons, omit `--corrected-only`.
 
 Runs write JSON summaries and compressed synthetic histories under `results/`. Large arrays are ignored by Git. Runtime depends on machine and settings; the complete comparison takes several minutes, not just the smoke-test duration. A NUMBA or Matplotlib cache warning can be addressed by setting their cache directories to writable local locations.
 
@@ -73,7 +79,7 @@ Runs write JSON summaries and compressed synthetic histories under `results/`. L
 - Tested runs used 500 users, 2,000 items, 20 random startup steps and 100 deployment steps, with fixed preferences and no repeated consumption.
 - Logs were checked for retained interactions, valid choices and factor index alignment.
 - The original MF could recommend untrained items almost exclusively in its first deployment step. The explicit zero-score policy removed this effect in the tested cases.
-- The model showed personalization, but later preference matching remained limited. This is an analysis case, not evidence that MF always outperforms Random or causes filter bubbles.
+- The original model showed personalization, but late in the run it ranked items worse than Random. The candidate configuration in [docs/mf_pipeline_experiment.md](docs/mf_pipeline_experiment.md) adds latent factors and two random slots per slate and ranks above Random throughout. This is an analysis case, not evidence that MF always outperforms Random or causes filter bubbles.
 - No broad multi-seed inference, drift grid, full-paper reproduction or visualization evaluation is claimed.
 
 See [docs/model_audit.md](docs/model_audit.md) for the audit details and [results/README.md](results/README.md) for the provenance of the included result files.
