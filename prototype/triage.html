@@ -59,6 +59,16 @@ canvas { display: block; width: 100%; cursor: crosshair; }
 .ok { color: var(--ok); } .bad { color: var(--bad); }
 .flags { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .note { font-size: 12px; color: var(--muted); margin: 0; }
+.ovwrap { overflow-x: auto; }
+table.ov { border-collapse: collapse; font-size: 12px; width: 100%; }
+.ov th, .ov td { padding: 3px 8px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; }
+.ov th { font-weight: 600; color: var(--muted); font-size: 11px; }
+.ov .name { text-align: left; }
+.ov tr.cur td { background: var(--bg); }
+.ov td.sel { box-shadow: inset 0 0 0 2px var(--accent); }
+.ov button { all: unset; cursor: pointer; font-family: var(--mono); font-variant-numeric: tabular-nums; padding: 1px 4px; border-radius: 4px; }
+.ov button:hover { text-decoration: underline; }
+.ov button:focus-visible { outline: 2px solid var(--accent); }
 svg text { fill: var(--muted); font-family: var(--mono); font-size: 10px; }
 [hidden] { display: none !important; }
 </style>
@@ -67,14 +77,14 @@ svg text { fill: var(--muted); font-family: var(--mono); font-size: 10px; }
 <div class="wrap">
   <header>
     <h1>Detector Triage</h1>
-    <p class="lede">A rough prototype for finding where diversity detectors go wrong. Each row is one consumption history and each column one step (0-based). <b>Synthetic</b> histories have a known change point, so you can check yourself against the truth. <b>MF</b> histories have none: only disagreements are certain to contain an error, so agreeing groups are sorted to put the likeliest shared errors first, and a random audit sample estimates how many there are.</p>
+    <p class="lede">A rough prototype for finding where diversity detectors go wrong. Three linked views: the <b>overview</b> compares the detectors; click one of its cells to list that detector's histories in the <b>matrix</b>, where each row is one consumption history and each column one step (0-based); click a row to open its <b>history</b>. <b>Synthetic</b> histories have a known change point, so you can check yourself against the truth. <b>MF</b> histories have none: only disagreements are certain to contain an error, so agreeing groups are sorted to put the likeliest shared errors first, and a random audit sample estimates how many there are.</p>
   </header>
 
   <section class="controls" aria-label="Controls">
     <label class="field"><span>Data</span>
       <select id="dataset"><option value="synthetic">Synthetic (seed 5)</option><option value="mf">MF candidate (seed 123)</option></select></label>
     <label class="field"><span>Group by</span>
-      <select id="groupBy"><option value="truth">Correctness (needs truth)</option><option value="alarms">Alarms only</option></select></label>
+      <select id="groupBy"><option value="truth">Correctness (needs truth)</option><option value="alarms">Alarms only</option><option value="focus">Selected detector (from overview)</option></select></label>
     <label class="field"><span>Reference</span>
       <select id="ref"><option value="startup">Step 19</option><option value="early_mf">Step 29 (MF only)</option></select></label>
     <label class="field"><span>False-alarm target</span>
@@ -85,6 +95,7 @@ svg text { fill: var(--muted); font-family: var(--mono); font-size: 10px; }
       <select id="scenario"><option value="all">All</option><option value="s">Stationary</option><option value="a">Abrupt</option><option value="g">Gradual</option></select></label>
     <label class="field"><span>Sort rows by</span>
       <select id="sort">
+        <option value="others">Other detectors disagree first</option>
         <option value="conc">Topic concentration rise</option>
         <option value="margin">Closest to the threshold</option>
         <option value="atyp">Least like the rest of the group</option>
@@ -95,6 +106,15 @@ svg text { fill: var(--muted); font-family: var(--mono); font-size: 10px; }
     <label class="field"><span>Cells show</span>
       <select id="view"><option value="topics">Topic consumed</option><option value="conc">Recent topic concentration</option><option value="div">Rolling-10 vs reference</option></select></label>
     <label class="check"><input id="truth" type="checkbox"><span>Show ground truth</span></label>
+  </section>
+
+  <section class="panel" aria-label="Overview">
+    <div class="bar">
+      <h2 id="ovTitle">Overview</h2>
+      <button id="focusClear" hidden>Clear selection</button>
+    </div>
+    <div class="ovwrap"><table class="ov" id="overview"></table></div>
+    <p class="note" id="ovNote"></p>
   </section>
 
   <div class="groups" id="groups" role="group" aria-label="Groups"></div>
@@ -141,8 +161,10 @@ const SC = { s: "stationary", a: "abrupt", g: "gradual", m: "MF" };
 const REFS = { startup: [19, 20], early_mf: [29, 30] };
 const AUDIT_SIZE = 20, AUDIT_SEED = 2026;
 const $ = (id) => document.getElementById(id);
+const ALPHAS = ["0.05", "0.10", "0.20"];
+// focus: the detector picked in the overview, or null; it drives the "focus" grouping and the "others" sort.
 const state = { dataset: "synthetic", groupBy: "truth", ref: "startup", alpha: "0.10", scale: 1, scenario: "all",
-                sort: "conc", view: "topics", truth: false, group: "allwrong", selected: null, audit: null };
+                sort: "conc", view: "topics", truth: false, group: "allwrong", selected: null, audit: null, focus: null };
 let DATA = window.TRIAGE_DATA, sets = {}, rows = [], shown = [], rowH = 6, flags = {};
 try { flags = JSON.parse(localStorage.getItem("triage-flags") || "{}"); } catch (e) { flags = {}; }
 
@@ -191,6 +213,11 @@ function evaluate() {
     const fired = DET.filter((d) => r.alarm[d] >= 0);
     r.firstAlarm = fired.length ? Math.min(...fired.map((d) => r.alarm[d])) : 999;
     r.concRise = mean(r.conc, 90, 119) - mean(r.conc, refIdx - 9, refIdx);
+    // With a focused detector: its verdict (right/wrong with truth, alarm/silent without) and how many others differ.
+    const verdict = (d) => (hasTruth() ? r.ok[d] : r.alarm[d] >= 0);
+    const f = state.focus;
+    r.others = f ? DET.filter((d) => d !== f && verdict(d) !== verdict(f)).length : 0;
+    if (state.groupBy === "focus") { r.group = hasTruth() ? (r.ok[f] ? "right" : "wrong") : (r.alarm[f] >= 0 ? "alarm" : "silent"); continue; }
     const n = state.groupBy === "truth" ? DET.filter((d) => r.ok[d]).length : fired.length;
     r.group = state.groupBy === "truth" ? (n === 3 ? "allright" : n === 0 ? "allwrong" : "disagree")
                                          : (n === 3 ? "allalarm" : n === 0 ? "noalarm" : "disagree");
@@ -215,22 +242,109 @@ function evaluate() {
   }
 }
 
-// Step 4: group buttons, with each group's tally of your judgments.
+// Step 4a: overview. Every detector x alpha is scored on the loaded histories at the current reference and
+// threshold scale, with the rules in docs/spec.md §5, so it always matches what the matrix shows.
+let ovCache = { key: null, stats: null };
+function overviewStats() {
+  const key = `${state.dataset}|${state.ref}|${state.scale}`;
+  if (ovCache.key === key) return ovCache.stats;
+  const [refIdx, start] = REFS[state.ref], stats = {};
+  for (const d of DET) for (const a of ALPHAS) {
+    const th = DATA.thetas[DFULL[d]][a] * state.scale;
+    const alarms = rows.map((r) => firstAlarm(r.s[d], th, refIdx, start));
+    stats[d + "|" + a] = { theta: th, ...(hasTruth() ? scoreSynthetic(alarms) : scoreMF(alarms)) };
+  }
+  ovCache = { key, stats };
+  return stats;
+}
+function scoreSynthetic(alarms) {
+  // False-alarm rate: stationary users with any alarm. Hit: first alarm in [t*, t*+39]. Delay: mean over hits only.
+  const s = { s: { n: 0, alarmed: 0 }, a: { n: 0, hits: 0, early: 0, delay: 0 }, g: { n: 0, hits: 0, early: 0, delay: 0 } };
+  rows.forEach((r, i) => {
+    const x = alarms[i], b = s[r.sc];
+    b.n++;
+    if (r.sc === "s") { if (x >= 0) b.alarmed++; return; }
+    if (x >= 0 && x < r.t) b.early++;
+    else if (x >= r.t && x <= r.t + 39) { b.hits++; b.delay += x - r.t; }
+  });
+  return s;
+}
+function scoreMF(alarms) {
+  // No known change point: alarm counts and timing only.
+  const fired = alarms.filter((x) => x >= 0).sort((a, b) => a - b);
+  return { n: alarms.length, alarmed: fired.length, first10: fired.filter((x) => x >= 20 && x <= 29).length,
+           median: fired.length ? fired[Math.floor(fired.length / 2)] : null };
+}
+const pct = (k, n) => (n ? Math.round((100 * k) / n) + "%" : "–");
+function renderOverview() {
+  const stats = overviewStats(), syn = hasTruth();
+  const cell = (d, a, sc, text, title) => {
+    const sel = state.focus === d && state.alpha === a && (!syn || state.scenario === sc);
+    return `<td${sel ? ' class="sel"' : ""}><button data-d="${d}" data-a="${a}" data-sc="${sc}" title="${title}">${text}</button></td>`;
+  };
+  const head = syn ? ["Stationary: false alarms", "Abrupt: detected", "Abrupt: delay", "Gradual: detected", "Gradual: delay"]
+                   : ["Alarmed", "In first ten MF steps", "Median first alarm"];
+  let html = `<thead><tr><th class="name">Detector</th><th>Target α</th><th>θ</th>${head.map((h) => `<th>${h}</th>`).join("")}</tr></thead><tbody>`;
+  for (const d of DET) ALPHAS.forEach((a, k) => {
+    const s = stats[d + "|" + a];
+    html += `<tr${a === state.alpha ? ' class="cur"' : ""}>` +
+      (k === 0 ? `<td class="name" rowspan="3"><span class="sw" style="background:var(--det-${d})"></span>${DNAME[d]}</td>` : "") +
+      `<td class="mono">${a}</td><td class="mono">${s.theta.toFixed(3)}</td>`;
+    if (syn) {
+      html += cell(d, a, "s", pct(s.s.alarmed, s.s.n), `${s.s.alarmed} of ${s.s.n} stationary users alarmed`);
+      for (const sc of ["a", "g"]) {
+        const b = s[sc];
+        html += cell(d, a, sc, pct(b.hits, b.n), `${b.hits} of ${b.n} hits, ${b.early} early alarms`);
+        html += cell(d, a, sc, b.hits ? (b.delay / b.hits).toFixed(1) : "–", `mean delay in steps over ${b.hits} hits`);
+      }
+    } else {
+      html += cell(d, a, "m", pct(s.alarmed, s.n), `${s.alarmed} of ${s.n} users alarmed`);
+      html += cell(d, a, "m", state.ref === "startup" ? pct(s.first10, s.n) : "–", "first alarm at steps 20-29, as a share of all users (step 19 reference only)");
+      html += cell(d, a, "m", s.median === null ? "–" : String(s.median), "median step of the first alarm among alarmed users");
+    }
+    html += "</tr>";
+  });
+  $("overview").innerHTML = html + "</tbody>";
+  $("ovTitle").textContent = `Overview · ${syn ? "synthetic seed " + DATA.synthetic.seed : "MF candidate seed " + DATA.mf.seed} · threshold scale ${state.scale.toFixed(2)}×`;
+  $("focusClear").hidden = !state.focus;
+  $("ovNote").textContent = syn
+    ? "Scored on the histories shown here, so the false-alarm rate is the realized rate on this seed, not the target. Delay averages hits only; early alarms count as misses. Alarms are recomputed from rounded series, so a few counts can differ by one from results/synthetic/synthetic_alarm_results_by_seed.csv; pooled results over seeds 5–9 are in synthetic_alarm_results.csv. Click a cell to list that detector's histories for that scenario and target."
+    : "MF has no known change point, so this compares alarm counts only. Alarms in the first ten MF steps are a description of timing, not evidence that the switch to MF caused them. Click a cell to list that detector's histories at that target.";
+}
+function focusOn(d, a, sc) {
+  // Overview -> matrix: pick the target, scenario and detector, then group and sort the matrix by that detector.
+  Object.assign(state, { alpha: a, focus: d, groupBy: "focus", group: hasTruth() ? "wrong" : "alarm", sort: "others", selected: null, audit: null });
+  if (hasTruth()) state.scenario = sc;
+  render();
+}
+function clearFocus() {
+  Object.assign(state, { focus: null, groupBy: hasTruth() ? "truth" : "alarms", selected: null, audit: null });
+  if (state.sort === "others") state.sort = "conc";
+  render();
+}
+
+// Step 4b: group buttons, with each group's tally of your judgments.
 const GROUPS = {
   truth: [["disagree", "Detectors disagree"], ["allwrong", "All three wrong"], ["allright", "All three right"]],
   alarms: [["disagree", "Detectors disagree"], ["noalarm", "No detector alarms"], ["allalarm", "All three alarm"]],
 };
+function groupList() {
+  if (state.groupBy !== "focus") return GROUPS[state.groupBy];
+  const f = DNAME[state.focus];
+  return hasTruth() ? [["wrong", `${f} wrong`], ["right", `${f} right`]] : [["alarm", `${f} alarms`], ["silent", `${f} silent`]];
+}
 function tally(members) {
   const c = { n: 0, s: 0, u: 0 };
   for (const r of members) if (flags[r.id]) c[flags[r.id]]++;
   return c;
 }
 function renderGroups() {
-  const list = GROUPS[state.groupBy];
+  const list = groupList();
   if (!list.some(([k]) => k === state.group)) state.group = list[0][0];
   $("groups").innerHTML = "";
   for (const [key, label] of list) {
-    const members = rows.filter((r) => r.group === key);
+    // Count within the scenario filter, so a card agrees with the matrix it opens.
+    const members = rows.filter((r) => r.group === key && (state.scenario === "all" || r.sc === state.scenario));
     const by = (c) => members.filter((r) => r.sc === c).length;
     const t = tally(members);
     const b = document.createElement("button");
@@ -245,8 +359,8 @@ function renderGroups() {
 
 // Step 5: the user-by-step canvas.
 function sortRows(list) {
-  const key = { conc: (r) => -r.concRise, margin: (r) => r.margin, atyp: (r) => -r.atyp, alarm: (r) => r.firstAlarm,
-                tstar: (r) => r.t, user: (r) => r.user }[state.sort];
+  const key = { others: (r) => -r.others, conc: (r) => -r.concRise, margin: (r) => r.margin, atyp: (r) => -r.atyp,
+                alarm: (r) => r.firstAlarm, tstar: (r) => r.t, user: (r) => r.user }[state.sort];
   return list.sort((a, b) => key(a) - key(b) || a.user - b.user);
 }
 function cellColor(r, t) {
@@ -331,7 +445,7 @@ function renderDetail() {
   $("chart").innerHTML = svg + `<div class="legend">${DET.map((d) => `<span><span class="sw" style="background:var(--det-${d})"></span>${DNAME[d]} ÷ value at ${refIdx} (dashed: its threshold)</span>`).join("")}</div>`;
   $("verdicts").innerHTML = DET.map((d) => {
     const a = r.alarm[d], verdict = state.truth ? ` <span class="pill ${r.ok[d] ? "ok" : "bad"}">${r.ok[d] ? "right" : "wrong"}</span>` : "";
-    return `<div class="verdict"><b>${DNAME[d]}</b><span class="mono">${a >= 0 ? "alarm at " + a : "no alarm"}</span>${verdict}<br><span class="note mono">θ = ${thetaOf(d).toFixed(3)}</span></div>`;
+    return `<div class="verdict"${d === state.focus ? ' style="border-color:var(--accent)"' : ""}><b>${DNAME[d]}</b><span class="mono">${a >= 0 ? "alarm at " + a : "no alarm"}</span>${verdict}<br><span class="note mono">θ = ${thetaOf(d).toFixed(3)}</span></div>`;
   }).join("");
   for (const k of ["n", "s", "u"]) $("flag-" + k).setAttribute("aria-pressed", String(flags[r.id] === k));
 }
@@ -366,22 +480,28 @@ function drawAudit() {
 // Step 8: controls and rendering.
 function syncControls() {
   const syn = hasTruth();
-  if (!syn) { state.groupBy = "alarms"; state.truth = false; state.scenario = "all"; if (state.sort === "tstar") state.sort = "conc"; }
+  if (!syn) { if (state.groupBy === "truth") state.groupBy = "alarms"; state.truth = false; state.scenario = "all"; if (state.sort === "tstar") state.sort = "conc"; }
   else if (state.ref !== "startup") state.ref = "startup";
-  $("groupBy").disabled = !syn; $("truth").disabled = !syn; $("scenario").disabled = !syn; $("ref").disabled = syn;
+  // Options that need the overview's selected detector are off until one is picked.
+  if (!state.focus) { if (state.groupBy === "focus") state.groupBy = syn ? "truth" : "alarms"; if (state.sort === "others") state.sort = "conc"; }
+  $("groupBy").querySelector('[value="truth"]').disabled = !syn;
+  $("groupBy").querySelector('[value="focus"]').disabled = !state.focus;
+  $("sort").querySelector('[value="others"]').disabled = !state.focus;
+  $("truth").disabled = !syn; $("scenario").disabled = !syn; $("ref").disabled = syn;
   $("sort").querySelector('[value="tstar"]').disabled = !syn;
-  for (const id of ["groupBy", "ref", "scenario", "sort"]) $(id).value = state[id];
+  for (const id of ["groupBy", "ref", "alpha", "scenario", "sort"]) $(id).value = state[id];
   $("truth").checked = state.truth;
 }
 function render() {
   syncControls();
   rows = sets[state.dataset];
   evaluate();
+  renderOverview();
   renderGroups();
   let list = rows.filter((r) => r.group === state.group && (state.scenario === "all" || r.sc === state.scenario));
   if (state.audit) list = list.filter((r) => state.audit.ids.has(r.id));
   shown = sortRows(list);
-  const label = GROUPS[state.groupBy].find(([k]) => k === state.group)[1];
+  const label = groupList().find(([k]) => k === state.group)[1] + (state.scenario !== "all" ? " · " + SC[state.scenario] : "");
   $("listTitle").textContent = `${label} · ${shown.length} histories`;
   $("auditNote").hidden = !state.audit; $("wholeBtn").hidden = !state.audit;
   if (state.audit) $("auditNote").textContent = `Audit sample: ${shown.length} of ${state.audit.of} drawn at random (seed ${AUDIT_SEED}). Judge every row; the group tally then estimates how this group splits. Sorting does not change which rows are in the sample.`;
@@ -391,8 +511,12 @@ function render() {
 for (const id of ["dataset", "groupBy", "ref", "alpha", "scenario", "sort", "view"]) $(id).addEventListener("change", (e) => {
   state[id] = e.target.value;
   if (["dataset", "groupBy", "ref", "alpha", "scenario"].includes(id)) { state.audit = null; state.selected = null; }
+  // A new dataset starts without a selected detector and with its default grouping.
+  if (id === "dataset") { state.focus = null; state.groupBy = state.dataset === "synthetic" ? "truth" : "alarms"; }
   render();
 });
+$("overview").addEventListener("click", (e) => { const b = e.target.closest("button[data-d]"); if (b) focusOn(b.dataset.d, b.dataset.a, b.dataset.sc); });
+$("focusClear").onclick = clearFocus;
 $("scale").addEventListener("input", (e) => { state.scale = +e.target.value; $("scaleOut").textContent = state.scale.toFixed(2) + "×"; state.audit = null; render(); });
 $("truth").addEventListener("change", (e) => { state.truth = e.target.checked; render(); });
 $("auditBtn").onclick = drawAudit;
