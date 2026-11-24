@@ -218,3 +218,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Generated project data (docs/spec.md §8): commit scripts and data/sample/ only.
+*.npz
+data/*
+!data/sample/

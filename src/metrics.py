@@ -66,6 +66,41 @@ def diversity_series(item_vectors, histories, windows=(10, 20), chunk=500):
     return series
 
 
+def recent_vs_early(item_vectors, histories, rng, window=10, draws=20, chunk=250):
+    """Recent diversity divided by the diversity of equally many earlier items.
+
+    At step t, D_recent is the diversity of the last `window` items (steps
+    t-window+1..t). D_early averages, over `draws` samples, the diversity of
+    `window` items drawn without replacement from the earlier steps 0..t-window.
+    Both sides always use `window` items, so the ratio has the same sample size at
+    every step, unlike cumulative diversity. The first defined step is
+    2*window - 1; earlier steps are NaN. `rng` is a numpy Generator; results are
+    reproducible for a fixed seed, history order and chunk size.
+    """
+    histories = np.atleast_2d(np.asarray(histories, dtype=int))
+    num_users, num_steps = histories.shape
+    unit = _unit_rows(np.asarray(item_vectors, dtype=float))
+    ratio = np.full((num_users, num_steps), np.nan)
+    pair_count = window * (window - 1)
+    for lo in range(0, num_users, chunk):
+        # Step 1: pairwise cosine distances within each user's own history.
+        vectors = unit[histories[lo:lo + chunk]]
+        distance = 1 - vectors @ vectors.transpose(0, 2, 1)
+        users = np.arange(len(vectors))[:, None, None, None]
+        for t in range(2 * window - 1, num_steps):
+            # Step 2: recent window; the diagonal is zero, so the sum covers i != j.
+            recent = np.arange(t - window + 1, t + 1)
+            d_recent = distance[:, recent][:, :, recent].sum(axis=(1, 2)) / pair_count
+            # Step 3: `draws` samples without replacement from steps 0..t-window, as
+            # the first `window` positions of independent random orderings.
+            pool = t - window + 1
+            sample = rng.random((len(vectors), draws, pool)).argsort(axis=2)[:, :, :window]
+            block = distance[users, sample[..., :, None], sample[..., None, :]]
+            d_early = (block.sum(axis=(2, 3)) / pair_count).mean(axis=1)
+            ratio[lo:lo + chunk, t] = d_recent / d_early
+    return ratio
+
+
 def first_alarms(values, reference, theta, start, consecutive=3):
     """Step at which each series first raises an alarm, or -1 if it never does.
 
