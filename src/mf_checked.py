@@ -27,3 +27,20 @@ class CheckedImplicitMF(ImplicitMF):
         BaseRecommender.train(self)
         if not np.isfinite(self.predicted_user_item_scores).all():
             raise ValueError('MF produced non-finite predictions')
+
+
+class InterleavedImplicitMF(CheckedImplicitMF):
+    """Add random exploration items without repeating an item on the slate."""
+
+    def generate_recommendations(self, k, item_indices=None):
+        # T-RECS ranks items before drawing the random part of the same slate.
+        self._ranked_items = super().generate_recommendations(k, item_indices)
+        return self._ranked_items
+
+    def choose_interleaved_items(self, k, item_indices):
+        ranked = getattr(self, '_ranked_items', None)
+        if k and ranked is not None and ranked.size:
+            # Keep the eligible indices in their original order for seeded draws.
+            unranked = ~(item_indices[:, :, None] == ranked[:, None, :]).any(axis=2)
+            item_indices = item_indices[unranked].reshape(self.num_users, -1)
+        return super().choose_interleaved_items(k, item_indices)
